@@ -1,0 +1,774 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Classic Pac-Man (single file)</title>
+  <style>
+    :root{--bg:#000;--wall:#001a49;--pellet:#ffd86b;--energ:#ff6b6b;--pac:#ffd34d;--ghost-red:#ff4d4d;--ghost-pink:#ff9fc3;--ghost-cyan:#4dd9ff;--ghost-orange:#ffb86b}
+    html,body{height:100%;margin:0;background:var(--bg);color:#fff;font-family:Arial,Helvetica,sans-serif}
+    .container{display:flex;flex-direction:column;align-items:center;padding:12px}
+    canvas{image-rendering:pixelated;background:#000;border:6px solid #222;display:block}
+    header{display:flex;gap:12px;align-items:center;margin-bottom:8px}
+    .info{font-size:14px}
+    .controls{font-size:12px;color:#ddd}
+    footer{margin-top:8px;color:#bbb;font-size:12px}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h2 style="margin:0">Classic Pac-Man (single file)</h2>
+      <div class="info">Score: <span id="score">0</span> &nbsp; Lives: <span id="lives">3</span></div>
+    </header>
+    <canvas id="game" width="616" height="672"></canvas>
+    <div class="controls">Use arrow keys to move. Eat all pellets to win. Eat power pellets to eat ghosts.</div>
+    <div style="margin-top:8px;display:flex;gap:8px"><button id="pause">Pause</button><button id="restart">Restart</button></div>
+    <footer>Open this file in your browser to play.</footer>
+  </div>
+    <!-- START OVERLAY: shown before the game. Choose Pac-Man color and start -->
+    <div id="startOverlay" style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.7);z-index:999">
+      <div style="background:#111;padding:20px;border:3px solid #444;border-radius:8px;text-align:center;color:#fff;min-width:320px">
+        <h2 style="margin:0 0 8px 0">Welcome to Classic Pac-Man</h2>
+        <div style="margin-bottom:10px;display:flex;gap:12px;align-items:center;justify-content:center">
+          <div style="text-align:center">Choose Pac-Man color:</div>
+          <canvas id="pacPreview" width="80" height="80" style="width:80px;height:80px;border-radius:8px;background:#000;display:block;border:1px solid #333"></canvas>
+        </div>
+        <div id="colorPalette" style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center">
+          <!-- 10 specific color choices requested by user: Red, Orange, Yellow, DarkBlue, LightBlue, DarkGreen, LightGreen, Pink, Purple, Brown -->
+          <button class="colorBtn" data-color="#ff4d4d" title="Red" style="width:36px;height:36px;border-radius:50%;border:3px solid #fff;background:#ff4d4d"></button>
+          <button class="colorBtn" data-color="#ffb86b" title="Orange" style="width:36px;height:36px;border-radius:50%;border:3px solid #fff;background:#ffb86b"></button>
+          <button class="colorBtn" data-color="#ffd34d" title="Yellow" style="width:36px;height:36px;border-radius:50%;border:3px solid #fff;background:#ffd34d"></button>
+          <button class="colorBtn" data-color="#001f5f" title="Dark Blue" style="width:36px;height:36px;border-radius:50%;border:3px solid #fff;background:#001f5f"></button>
+          <button class="colorBtn" data-color="#4dd9ff" title="Light Blue" style="width:36px;height:36px;border-radius:50%;border:3px solid #fff;background:#4dd9ff"></button>
+          <button class="colorBtn" data-color="#006400" title="Dark Green" style="width:36px;height:36px;border-radius:50%;border:3px solid #fff;background:#006400"></button>
+          <button class="colorBtn" data-color="#a8ff7f" title="Light Green" style="width:36px;height:36px;border-radius:50%;border:3px solid #fff;background:#a8ff7f"></button>
+          <button class="colorBtn" data-color="#ff9fc3" title="Pink" style="width:36px;height:36px;border-radius:50%;border:3px solid #fff;background:#ff9fc3"></button>
+          <button class="colorBtn" data-color="#9b59ff" title="Purple" style="width:36px;height:36px;border-radius:50%;border:3px solid #fff;background:#9b59ff"></button>
+          <button class="colorBtn" data-color="#8b5a2b" title="Brown" style="width:36px;height:36px;border-radius:50%;border:3px solid #fff;background:#8b5a2b"></button>
+        </div>
+        <div style="margin-top:12px"><button id="startBtn">Start Game</button></div>
+      </div>
+    </div>
+
+    <!-- END OVERLAY (re-uses previous win behavior) -->
+    <div id="endOverlay" style="position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,0.7);z-index:999">
+      <div style="background:#111;padding:20px;border:3px solid #444;border-radius:8px;text-align:center;color:#fff;min-width:260px">
+        <h2 id="endMsg">You win!</h2>
+        <div style="margin-top:12px;display:flex;gap:8px;justify-content:center">
+          <button id="endToStart">Choose color & Play again</button>
+          <button id="endRestartNow">Restart with same color</button>
+        </div>
+      </div>
+    </div>
+
+  <script>
+  // Simple single-file Pac-Man implementation.
+  // Map legend:
+  // '#' wall, '.' pellet, 'o' power pellet, ' ' empty
+
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const scoreEl = document.getElementById('score');
+  const livesEl = document.getElementById('lives');
+
+  // TILE is the pixel size of one map tile; we'll compute it based on the window size so the game scales.
+  let TILE = 16; // pixel per tile (initial)
+  const COLS = 28; // classic pacman grid width
+  const ROWS = 33; // adapt height
+  let S = TILE; // shorthand (updated on resize)
+
+  // A small classic-like maze (28x33). This is a simplified, playable map.
+  // Constructed as array of strings (each length 28). We use # walls, . pellets, o energizers, ' ' empty
+  const rawMap = [
+    '############################',
+    '#............##............#',
+    '#.####.#####.##.#####.####.#',
+    '#o####.#####.##.#####.####o#',
+    '#.####.#####.##.#####.####.#',
+    '#..........................#',
+    '#.####.##.########.##.####.#',
+    '#.####.##.########.##.####.#',
+    '#......##....##....##......#',
+    '######.##### ## #####.######',
+    '     #.##### ## #####.#     ',
+    '     #.##          ##.#     ',
+    '     #.## ###--### ##.#     ',
+    '######.## ##    ## ##.######',
+    '      .   ######## ##       ',
+    '######.##          ##.######', 
+    '     #.## ######## ##.#     ',
+    '     #.##          ##.#     ',
+    '     #.## ######## ##.#     ',
+    '######.## ######## ##.######',
+    '#............##............#',
+    '#.####.#####.##.#####.####.#',
+    '#o####.#####.##.#####.####o#',
+    '#...##................##...#',
+    '###.##.##.########.##.##.###',
+    '###.##.##.########.##.##.###',
+    '#......##....##....##......#',
+    '#.##########.##.##########.#',
+    '#.##########.##.##########.#',
+    '#..........................#',
+    '############################',
+    '                            ',
+    '                            '
+  ];
+
+  // Normalize to ROWS length
+  while(rawMap.length < ROWS) rawMap.push(' '.repeat(COLS));
+
+  let map = rawMap.map(r => r.split(''));
+
+  // Convert spaces in the 'tunnel' regions at left/right to be open (allow wrap)
+
+  const getTile = (c,r)=> (r>=0 && r<ROWS && c>=0 && c<COLS) ? map[r][c] : '#';
+  const wrapX = x => ((x % COLS) + COLS) % COLS;
+  const getTileWrapped = (c,r) => {
+    if(r<0 || r>=ROWS) return '#';
+    return map[r][wrapX(c)];
+  };
+  const setTile = (c,r,val)=>{ if(r>=0 && r<ROWS && c>=0 && c<COLS) map[r][c]=val };
+
+  // Game state
+  let score = 0, lives = 3; 
+  let pelletsRemaining = 0;
+
+  // Pac-Man
+  // speed is in tiles per second (will be multiplied by deltaTime in seconds)
+  // pac.speed is tiles per second — increase to make Pac-Man move faster
+  // pac.speed is tiles per second — lowered to make movement slower and more playable
+  const pac = { x:13, y:23, dir:{x:0,y:0}, nextDir:{x:0,y:0}, speed:5, radius:5, mouth:90, moving:false, targetX:null, targetY:null, color:'#ffd34d' };
+
+  // Ghosts
+  class Ghost {
+    constructor(x,y,color,name){
+      this.x = x; this.y = y; this.spawnX = x; this.spawnY = y; this.dir = {x:0,y:0};
+      this.color = color; this.name = name || ''; this.mode = 'scatter';
+      this.vulnerable = false; this.dead = false; this.inHouse = false;
+      this.trail = []; this.lastTrailTime = 0;
+      // recent tile history to discourage repeating same path
+      this.recent = [];
+    }
+  }
+
+  const ghosts = [
+    // spawn ghosts inside the ghost house (rows ~13-15) so they can run out when released
+    // moved spawn one tile up (y=13) so ghosts start slightly higher and won't re-enter the house after wrapping
+    new Ghost(13,13,'#ff4d4d','Blinky'), // Blinky
+    new Ghost(14,13,'#ff9fc3','Pinky'), // Pinky
+    new Ghost(12,13,'#4dd9ff','Inky'), // Inky
+    new Ghost(15,13,'#ffb86b','Clyde')  // Clyde
+  ];
+
+  // Initialize pellets count
+  for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++) if(map[r][c]==='.'||map[r][c]==='o') pelletsRemaining++;
+
+  // game control
+  let paused = false;
+  let releaseTimers = [];
+  let gameStartTime = performance.now();
+
+  // Input handling
+  const keys = {};
+  window.addEventListener('keydown', e=>{
+    keys[e.key]=true; e.preventDefault();
+    // also update nextDir immediately so movement feels responsive
+    if(e.key==='ArrowLeft') pac.nextDir={x:-1,y:0};
+    if(e.key==='ArrowRight') pac.nextDir={x:1,y:0};
+    if(e.key==='ArrowUp') pac.nextDir={x:0,y:-1};
+    if(e.key==='ArrowDown') pac.nextDir={x:0,y:1};
+    trySetNextDir();
+  });
+  window.addEventListener('keyup', e=>{ keys[e.key]=false; });
+
+  // ensure the document has focus so keyboard events are received; focus body on load and when clicking canvas
+  window.addEventListener('load', ()=>{ try{ document.body.tabIndex = -1; document.body.focus(); }catch(e){} });
+  canvas.addEventListener('click', ()=>{ try{ document.body.focus(); }catch(e){} });
+
+  // Touch / swipe controls for iPad: swipe on the canvas to change Pac-Man direction
+  let touchStartX = 0, touchStartY = 0, touchStartTime = 0;
+  const SWIPE_THRESHOLD = 30; // pixels
+  canvas.addEventListener('touchstart', e=>{
+    if(e.touches && e.touches.length>0){
+      const t = e.touches[0];
+      touchStartX = t.clientX; touchStartY = t.clientY; touchStartTime = performance.now();
+    }
+  }, {passive:false});
+  canvas.addEventListener('touchmove', e=>{
+    // prevent page from scrolling while swiping on the canvas
+    e.preventDefault();
+  }, {passive:false});
+  canvas.addEventListener('touchend', e=>{
+    if(!e.changedTouches || e.changedTouches.length===0) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - touchStartX, dy = t.clientY - touchStartY;
+    // ignore tiny taps
+    if(Math.hypot(dx,dy) < SWIPE_THRESHOLD) return;
+    if(Math.abs(dx) > Math.abs(dy)){
+      // horizontal swipe
+      if(dx > 0) pac.nextDir = {x:1,y:0}; else pac.nextDir = {x:-1,y:0};
+    } else {
+      // vertical swipe
+      if(dy > 0) pac.nextDir = {x:0,y:1}; else pac.nextDir = {x:0,y:-1};
+    }
+    trySetNextDir();
+  }, {passive:false});
+
+  // Responsive canvas: compute TILE size to fit the window while preserving aspect ratio
+  function resizeCanvas(){
+    // margins for UI chrome
+    const marginX = 40; // left+right approx
+    const marginY = 140; // header + footer + controls
+    const availW = Math.max(200, window.innerWidth - marginX);
+    const availH = Math.max(200, window.innerHeight - marginY);
+    // compute tile size so the whole map fits
+    let tile = Math.floor(Math.min(availW / COLS, availH / ROWS));
+    if(tile < 6) tile = 6;
+    TILE = tile;
+    S = TILE;
+    // set canvas pixel dimensions
+    canvas.width = COLS * TILE;
+    canvas.height = ROWS * TILE;
+    // set CSS so it remains crisp and centered
+    canvas.style.width = canvas.width + 'px';
+    canvas.style.height = canvas.height + 'px';
+    canvas.style.maxWidth = '100%';
+    canvas.style.height = 'auto';
+  }
+  window.addEventListener('resize', resizeCanvas);
+  // compute initial size
+  resizeCanvas();
+
+  function trySetNextDir(){
+    const d = pac.nextDir;
+    // test movement relative to the nearest tile center so Pac can start moving from a tile
+    const nx = Math.round(pac.x) + d.x, ny = Math.round(pac.y) + d.y;
+    if(canMoveTo(nx,ny)) pac.dir = {...d};
+  }
+
+  function canMoveTo(x,y){
+    // allow horizontal wrapping: check wrapped tile for walls
+    const cx = Math.round(x);
+    const cy = Math.round(y);
+    return getTileWrapped(cx,cy) !== '#';
+  }
+
+  function updateInput(){
+    // support arrow keys and WASD
+    if(keys['ArrowLeft'] || keys['a'] || keys['A']) pac.nextDir={x:-1,y:0};
+    if(keys['ArrowRight'] || keys['d'] || keys['D']) pac.nextDir={x:1,y:0};
+    if(keys['ArrowUp'] || keys['w'] || keys['W']) pac.nextDir={x:0,y:-1};
+    if(keys['ArrowDown'] || keys['s'] || keys['S']) pac.nextDir={x:0,y:1};
+    // try to apply the queued direction so holding a key works even if keydown was missed
+    trySetNextDir();
+  }
+
+  function wrapPos(pos){
+    // allow smooth horizontal tunnel-wrap when moving beyond edges
+    // wrap only when the row at the edge is open (tunnel); otherwise clamp
+    const row = Math.round(pos.y);
+    const now = performance.now();
+    // prevent immediate re-wrapping for pac after a recent wrap
+    const wrapCooldown = 300; // ms
+    if(pos.x < -0.5){
+      if(canMoveTo(COLS-1, row)){
+        // if pac has just wrapped, avoid double-wrapping
+        if(pos === pac && pac.justWrapped && (now - pac.justWrapped) < wrapCooldown) return;
+        pos.x = COLS - 0.5;
+        if(pos === pac){
+          // record wrap time
+          pac.justWrapped = now;
+          // try to resume movement in the same direction or nextDir if possible
+          const prefer = (pac.nextDir && (pac.nextDir.x||pac.nextDir.y)) ? pac.nextDir : pac.dir;
+          const cx = Math.round(pac.x), cy = Math.round(pac.y);
+          const tx = cx + (prefer ? prefer.x : 0), ty = cy + (prefer ? prefer.y : 0);
+          if(prefer && canMoveTo(tx, ty)){
+            pac.dir = {...prefer}; pac.targetX = tx; pac.targetY = ty; pac.moving = true;
+          } else {
+            // keep dir but don't force movement; player input will set nextDir
+            pac.moving = false;
+          }
+        }
+      } else pos.x = Math.max(pos.x, 0);
+    }
+    if(pos.x > COLS - 0.5){
+      if(canMoveTo(0, row)){
+        if(pos === pac && pac.justWrapped && (now - pac.justWrapped) < wrapCooldown) return;
+        pos.x = -0.5;
+        if(pos === pac){
+          pac.justWrapped = now;
+          const prefer = (pac.nextDir && (pac.nextDir.x||pac.nextDir.y)) ? pac.nextDir : pac.dir;
+          const cx = Math.round(pac.x), cy = Math.round(pac.y);
+          const tx = cx + (prefer ? prefer.x : 0), ty = cy + (prefer ? prefer.y : 0);
+          if(prefer && canMoveTo(tx, ty)){
+            pac.dir = {...prefer}; pac.targetX = tx; pac.targetY = ty; pac.moving = true;
+          } else {
+            pac.moving = false;
+          }
+        }
+      } else pos.x = Math.min(pos.x, COLS-1);
+    }
+    // do not vertically wrap in this map (classic Pac-Man only wraps horizontally)
+  }
+
+  function updatePac(dt){
+    // Grid-based movement: Pac-Man moves tile by tile.
+    // dt in ms -> seconds
+    const dtSec = dt/1000;
+
+    // If not currently moving between tiles, try to start a move
+    if(!pac.moving){
+      // trySetNextDir is called from input; pac.dir should already be set to desired direction
+      const cx = Math.round(pac.x), cy = Math.round(pac.y);
+      if((pac.dir.x !== 0 || pac.dir.y !== 0)){
+        const tx = cx + pac.dir.x, ty = cy + pac.dir.y;
+        if(canMoveTo(tx, ty)){
+          pac.targetX = tx; pac.targetY = ty; pac.moving = true;
+        } else if(pac.nextDir && (pac.nextDir.x !== 0 || pac.nextDir.y !== 0)){
+          const nx = cx + pac.nextDir.x, ny = cy + pac.nextDir.y;
+          if(canMoveTo(nx, ny)){
+            pac.dir = {...pac.nextDir}; pac.targetX = nx; pac.targetY = ny; pac.moving = true;
+          }
+        }
+      }
+    }
+
+    // If moving, interpolate towards target tile
+    if(pac.moving){
+      const dx = pac.targetX - pac.x, dy = pac.targetY - pac.y;
+      const dist = Math.hypot(dx, dy);
+      const move = pac.speed * dtSec;
+      if(dist <= move || dist < 1e-6){
+        // Arrive exactly at target
+        pac.x = pac.targetX; pac.y = pac.targetY; pac.moving = false;
+        // clear wrap guard once we've arrived at a tile after a wrap
+        if(pac.justWrapped) pac.justWrapped = null;
+        // handle tile arrival: pellets, energizers
+        const t = getTile(Math.round(pac.x), Math.round(pac.y));
+        if(t=='.'){ score += 10; setTile(Math.round(pac.x),Math.round(pac.y),' '); pelletsRemaining--; }
+        if(t=='o'){ score += 50; setTile(Math.round(pac.x),Math.round(pac.y),' '); pelletsRemaining--; 
+          ghosts.forEach(g=>{ if(!g.dead){ g.vulnerable=true; setTimeout(()=>{ g.vulnerable=false; },7000); } });
+        }
+        // After arriving, attempt to continue moving in nextDir first, then current dir
+        const cx = Math.round(pac.x), cy = Math.round(pac.y);
+        if(pac.nextDir && (pac.nextDir.x !== 0 || pac.nextDir.y !== 0) && canMoveTo(cx + pac.nextDir.x, cy + pac.nextDir.y)){
+          pac.dir = {...pac.nextDir}; pac.targetX = cx + pac.dir.x; pac.targetY = cy + pac.dir.y; pac.moving = true;
+        } else if(pac.dir && (pac.dir.x !== 0 || pac.dir.y !== 0) && canMoveTo(cx + pac.dir.x, cy + pac.dir.y)){
+          pac.targetX = cx + pac.dir.x; pac.targetY = cy + pac.dir.y; pac.moving = true;
+        }
+      } else {
+        // move proportionally towards the target
+        pac.x += (dx/dist) * move;
+        pac.y += (dy/dist) * move;
+      }
+    } else {
+      // not moving; we may still be slightly off-center - snap to nearest tile center slowly
+      pac.x = pac.x; pac.y = pac.y;
+    }
+    // wrap at tunnels (conditional)
+    wrapPos(pac);
+
+    // animate mouth
+    pac.mouth += 6 * dtSec;
+  }
+
+  function updateGhosts(dt){
+    const dtSec = dt/1000;
+    const now = performance.now();
+    ghosts.forEach((g,i)=>{
+      // if ghost is confined in house, do not move until released
+      if(g.inHouse) return;
+      if(g.dead){ // return to spawn
+        const dx = g.spawnX - g.x, dy = g.spawnY - g.y;
+        const len = Math.hypot(dx,dy)||1;
+        // make returning ghosts faster than normal so they quickly get back to house
+        const returnSpeed = Math.max(1.2, pac.speed * 1.2);
+        g.x += (dx/len) * returnSpeed * dtSec; g.y += (dy/len) * returnSpeed * dtSec;
+        if(Math.hypot(dx,dy)<0.2){ g.dead=false; g.vulnerable=false; }
+        return;
+      }
+
+  // Ghost speeds: slightly slower than Pac-Man when normal, slower when vulnerable
+  const speed = g.vulnerable ? Math.max(0.6, pac.speed * 0.65) : Math.max(0.9, pac.speed * 0.92);
+      // At intersections, choose a direction. Use per-ghost scoring to discourage repeating
+      if(atCenter(g)){
+        // record current tile in recent history
+        const curTile = {x: Math.round(g.x), y: Math.round(g.y)};
+        if(!g.recent) g.recent = [];
+        const last = g.recent[g.recent.length-1];
+        if(!last || last.x !== curTile.x || last.y !== curTile.y) g.recent.push(curTile);
+        while(g.recent.length > 8) g.recent.shift();
+
+        // candidate moves (exclude immediate reverse if possible)
+        let options = directions.filter(d=>{
+          if(d.x === -g.dir.x && d.y === -g.dir.y) return false;
+          const nx = wrapX(Math.round(g.x + d.x)), ny = Math.round(g.y + d.y);
+          return getTileWrapped(nx,ny) !== '#';
+        });
+        if(options.length === 0) options = directions.filter(d=> getTileWrapped(Math.round(g.x + d.x), Math.round(g.y + d.y)) !== '#');
+
+        // prefer non-overlapping immediate tiles
+        const occupied = ghosts.filter(h=> h !== g && !h.dead).map(h=> ({x: Math.round(h.x), y: Math.round(h.y)}));
+        const nonOverlap = options.filter(d=>{ const nx = wrapX(Math.round(g.x + d.x)), ny = Math.round(g.y + d.y); return !occupied.some(p=>p.x===nx && p.y===ny); });
+        const choiceCandidates = nonOverlap.length ? nonOverlap : options;
+
+        // if vulnerable, random choice among candidates
+        if(g.vulnerable){ g.dir = choiceCandidates[Math.floor(Math.random()*choiceCandidates.length)]; }
+        else {
+          // compute per-ghost target
+          let target;
+          // simple per-ghost behaviors
+          if(g.name === 'Blinky'){
+            target = {x: pac.x, y: pac.y};
+          } else if(g.name === 'Pinky'){
+            const ahead = 4;
+            target = { x: pac.x + pac.dir.x * ahead, y: pac.y + pac.dir.y * ahead };
+            // small occasional jitter to reduce synchronization
+            if(Math.random() < 0.15){ target.x += (Math.random()-.5)*2; target.y += (Math.random()-.5)*2; }
+          } else if(g.name === 'Inky'){
+            const blinky = ghosts.find(h=>h.name==='Blinky') || ghosts[0];
+            const ax = pac.x + pac.dir.x * 2, ay = pac.y + pac.dir.y * 2;
+            target = { x: blinky.x + 2*(ax - blinky.x), y: blinky.y + 2*(ay - blinky.y) };
+            if(Math.random() < 0.2){ target.x += (Math.random()-.5)*3; target.y += (Math.random()-.5)*3; }
+          } else if(g.name === 'Clyde'){
+            const dist = Math.hypot(g.x - pac.x, g.y - pac.y);
+            if(dist > 8) target = {x: pac.x, y: pac.y}; else target = {x: 0, y: ROWS-1};
+          } else {
+            target = {x: pac.x, y: pac.y};
+          }
+
+          // weights per ghost to tune behavior: targetWeight, repeatPenalty, otherRepeatPenalty, rand
+          const weights = {
+            'Blinky': {t:1.0, r:40, o:25, rand:0.25},
+            'Pinky':  {t:0.9, r:50, o:35, rand:0.6},
+            'Inky':   {t:1.2, r:30, o:30, rand:0.9},
+            'Clyde':  {t:1.4, r:70, o:45, rand:1.0}
+          };
+          const w = weights[g.name] || {t:1,r:40,o:30,rand:0.5};
+
+          // build score for each candidate and pick min
+          let best = null, bestScore = Infinity;
+          choiceCandidates.forEach(d=>{
+            const nx = wrapX(Math.round(g.x + d.x)), ny = Math.round(g.y + d.y);
+            const dx = nx - (target.x||pac.x), dy = ny - (target.y||pac.y);
+            const distSq = dx*dx + dy*dy;
+            // repeat penalties
+            let repeatPenalty = g.recent.some(p=>p.x===nx && p.y===ny) ? w.r : 0;
+            // penalize following other ghosts' recent tiles
+            let otherPenalty = ghosts.some(h=> h !== g && (h.recent || []).some(p=> p.x===nx && p.y===ny) ) ? w.o : 0;
+            const noise = Math.random() * w.rand;
+            const score = distSq * w.t + repeatPenalty + otherPenalty + noise;
+            if(score < bestScore){ bestScore = score; best = d; }
+          });
+          g.dir = best || choiceCandidates[0] || options[0];
+        }
+      }
+
+  // attempt move; if next tile is a wall, pick a different direction
+      let nx = g.x + g.dir.x * speed * dtSec;
+      let ny = g.y + g.dir.y * speed * dtSec;
+      const tileX = Math.round(nx), tileY = Math.round(ny);
+      if(getTileWrapped(tileX, tileY) === '#'){
+        // choose available directions (allow reversing if needed)
+        const avail = directions.filter(d=> getTileWrapped(Math.round(g.x + d.x), Math.round(g.y + d.y)) !== '#');
+        if(avail.length>0) g.dir = avail[Math.floor(Math.random()*avail.length)];
+        else g.dir = {x:0,y:0};
+        nx = g.x; ny = g.y;
+      }
+
+      g.x = nx; g.y = ny;
+      // add trail entry for Pinky
+      if(g.name === 'Pinky'){
+        // add at intervals to avoid dense trail
+        if(!g.lastTrailTime || now - g.lastTrailTime > 80){
+          g.trail.push({x: g.x, y: g.y, t: now});
+          g.lastTrailTime = now;
+        }
+        // remove old trail entries older than trailLifetime
+        const trailLifetime = 900; // ms
+        while(g.trail.length && (now - g.trail[0].t) > trailLifetime) g.trail.shift();
+      }
+      wrapPos(g);
+    });
+  }
+
+  const directions = [{x:1,y:0},{x:-1,y:0},{x:0,y:1},{x:0,y:-1}];
+
+  // widened threshold so faster-moving ghosts don't skip intersections
+  function atCenter(entity){ return Math.abs(entity.x - Math.round(entity.x))<0.2 && Math.abs(entity.y - Math.round(entity.y))<0.2; }
+
+  function checkCollisions(){
+    ghosts.forEach(g=>{
+      const dx = g.x - pac.x, dy = g.y - pac.y;
+      if(Math.hypot(dx,dy) < 0.6){
+        if(g.vulnerable && !g.dead){ score += 200; g.dead = true; g.vulnerable = false; }
+        else if(!g.vulnerable && !g.dead){ // pacman dies
+          lives--; livesEl.textContent = lives;
+          if(lives<=0){ gameOver(); }
+          else resetPositions();
+        }
+      }
+    });
+  }
+
+  function resetPositions(){
+    pac.x = 13; pac.y = 23; pac.dir={x:0,y:0}; pac.nextDir={x:0,y:0}; pac.moving=false; pac.targetX=null; pac.targetY=null;
+    // reset ghosts and confine them to house except the first one
+    ghosts.forEach((g,i)=>{
+      g.x=g.spawnX; g.y=g.spawnY; g.vulnerable=false; g.dead=false;
+      g.inHouse = i !== 0; // only ghost 0 is free immediately
+      g.dir = {x:0,y:0};
+      g.recent = [];
+    });
+    // schedule staggered releases: ghost1 immediate (index 0), then +5s, +3s, +1s (cumulative)
+    scheduleGhostReleases();
+  }
+
+  function clearReleaseTimers(){ releaseTimers.forEach(t=>clearTimeout(t)); releaseTimers = []; }
+
+  function scheduleGhostReleases(){
+    clearReleaseTimers();
+    const delays = [0,5000,8000,9000]; // ms - cumulative: 0, +5s, +3s, +1s
+    ghosts.forEach((g,i)=>{
+      g.inHouse = true; // ensure confined first
+      const t = setTimeout(()=>{
+        g.inHouse = false;
+        // pick a direction that leads out of the house by preferring directions
+        // that reach pellets ('.') quickly; fallback to any available move
+        const exitDir = findExitDirection(g.spawnX, g.spawnY) || directions.find(d=> getTileWrapped(Math.round(g.x + d.x), Math.round(g.y + d.y)) !== '#') || {x:0,y:0};
+        g.dir = exitDir;
+      }, delays[i] || 0);
+      releaseTimers.push(t);
+    });
+    gameStartTime = performance.now();
+  }
+
+  // Find an exit direction from (sx,sy) by scanning in each direction for pellets '.'
+  function findExitDirection(sx, sy){
+    const maxLook = 12;
+    let best = null;
+    for(const d of directions){
+      for(let step=1; step<=maxLook; step++){
+        const tx = Math.round(sx + d.x*step);
+        const ty = Math.round(sy + d.y*step);
+        const t = getTileWrapped(tx, ty);
+        if(t === '#') break; // blocked this way
+        if(t === '.' || t === 'o'){
+          // prefer this direction (shorter steps prioritized by loop order)
+          return d;
+        }
+        // if we reach map edge open space, consider it an exit
+        if(tx <= 0 || tx >= COLS-1) return d;
+      }
+    }
+    return null;
+  }
+
+  function gameOver(){
+    // Show end overlay (game over) instead of alert
+    showEndOverlay('Game Over! Score: ' + score);
+  }
+
+  // Pause and restart UI
+  const pauseBtn = document.getElementById('pause');
+  const restartBtn = document.getElementById('restart');
+  pauseBtn.addEventListener('click', ()=>{ paused = !paused; pauseBtn.textContent = paused? 'Resume' : 'Pause'; });
+  restartBtn.addEventListener('click', ()=>{
+    // reset everything without alert
+    paused = false; pauseBtn.textContent = 'Pause';
+    score = 0; lives = 3; scoreEl.textContent = score; livesEl.textContent = lives;
+    map = rawMap.map(r=>r.split(''));
+    pelletsRemaining = 0; for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++) if(map[r][c]==='.'||map[r][c]==='o') pelletsRemaining++;
+    resetPositions();
+  });
+  // Overlay and color selection handling
+  // We'll assign these after DOM is ready to avoid timing issues
+  let startOverlay, startBtn, colorPalette, colorButtons, endOverlay, endMsg, endToStart, endRestartNow, previewCanvas, pCtx;
+
+  function showStartOverlay(){
+    startOverlay.style.display = 'flex';
+    paused = true; pauseBtn.textContent = 'Resume';
+  }
+  function hideStartOverlay(){ startOverlay.style.display = 'none'; }
+
+  function showEndOverlay(msg){
+    endMsg.textContent = msg;
+    endOverlay.style.display = 'flex';
+    paused = true; pauseBtn.textContent = 'Resume';
+  }
+  function hideEndOverlay(){ endOverlay.style.display = 'none'; }
+
+  // color selection
+  function selectColorBtn(btn){
+    colorButtons.forEach(b=> b.style.outline = '');
+    btn.style.outline = '3px solid #fff';
+    const c = btn.getAttribute('data-color');
+    pac.color = c;
+    // update preview display
+    drawPreview();
+  }
+  // Pac preview canvas drawing will be initialized after DOM is ready
+  function drawPreview(){
+    if(!pCtx) return;
+    const W = previewCanvas.width, H = previewCanvas.height;
+    pCtx.clearRect(0,0,W,H);
+    // draw a Pac-Man in center
+    const cx = W/2, cy = H/2, r = Math.min(W,H) * 0.32;
+    const mouthAngle = 0.5; // static preview mouth
+    pCtx.save();
+    pCtx.translate(cx, cy);
+    pCtx.fillStyle = pac.color || '#ffd34d';
+    pCtx.beginPath(); pCtx.moveTo(0,0); pCtx.arc(0,0,r,mouthAngle,-mouthAngle); pCtx.closePath(); pCtx.fill();
+    pCtx.restore();
+    // border
+    pCtx.strokeStyle = 'rgba(255,255,255,0.06)'; pCtx.lineWidth = 2; pCtx.strokeRect(0,0,W,H);
+  }
+  // initial preview draw
+  drawPreview();
+  // wire DOM elements and events once DOM is ready
+  window.addEventListener('DOMContentLoaded', ()=>{
+    startOverlay = document.getElementById('startOverlay');
+    startBtn = document.getElementById('startBtn');
+    colorPalette = document.getElementById('colorPalette');
+    colorButtons = Array.from(document.querySelectorAll('.colorBtn'));
+    endOverlay = document.getElementById('endOverlay');
+    endMsg = document.getElementById('endMsg');
+    endToStart = document.getElementById('endToStart');
+    endRestartNow = document.getElementById('endRestartNow');
+    previewCanvas = document.getElementById('pacPreview');
+    pCtx = previewCanvas && previewCanvas.getContext ? previewCanvas.getContext('2d') : null;
+
+    // attach color button handlers
+    colorButtons.forEach(b=> b.addEventListener('click', ()=> selectColorBtn(b)));
+    // init selection to default
+    if(colorButtons.length) selectColorBtn(colorButtons[0]);
+
+    // draw initial preview
+    drawPreview();
+
+  // show the start overlay once elements and handlers are ready
+  showStartOverlay();
+
+    // start button
+    if(startBtn) startBtn.addEventListener('click', ()=>{
+      // start fresh game with chosen color
+      hideStartOverlay(); paused = false; pauseBtn.textContent = 'Pause';
+      score = 0; lives = 3; scoreEl.textContent = score; livesEl.textContent = lives;
+      map = rawMap.map(r=>r.split(''));
+      pelletsRemaining = 0; for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++) if(map[r][c]==='.'||map[r][c]==='o') pelletsRemaining++;
+      resetPositions();
+    });
+
+    // end overlay buttons
+    if(endToStart) endToStart.addEventListener('click', ()=>{ hideEndOverlay(); showStartOverlay(); });
+    if(endRestartNow) endRestartNow.addEventListener('click', ()=>{
+      hideEndOverlay(); paused = false; pauseBtn.textContent = 'Pause';
+      score = 0; lives = 3; scoreEl.textContent = score; livesEl.textContent = lives;
+      map = rawMap.map(r=>r.split(''));
+      pelletsRemaining = 0; for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++) if(map[r][c]==='.'||map[r][c]==='o') pelletsRemaining++;
+      resetPositions();
+    });
+  });
+
+  function draw(){
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    // scale so that tile size is TILE
+    ctx.save();
+    ctx.scale(TILE, TILE);
+
+    // Draw map
+    for(let r=0;r<ROWS;r++){
+      for(let c=0;c<COLS;c++){
+        const t = getTile(c,r);
+        const x = c, y = r;
+        if(t==='#'){
+          ctx.fillStyle = '#001a49';
+          ctx.fillRect(x, y, 1, 1);
+          // inner shading
+          ctx.fillStyle = '#001f5f';
+          ctx.fillRect(x+0.08, y+0.08, 0.84, 0.84);
+        } else if(t==='.' ){
+          ctx.fillStyle = '#ffd86b'; ctx.beginPath(); ctx.arc(x+0.5,y+0.5,0.08,0,Math.PI*2); ctx.fill();
+        } else if(t==='o'){
+          ctx.fillStyle = '#ff6b6b'; ctx.beginPath(); ctx.arc(x+0.5,y+0.5,0.20,0,Math.PI*2); ctx.fill();
+        }
+      }
+    }
+
+    // Draw ghosts (including Pinky trail)
+    ghosts.forEach(g=>{
+      // draw Pinky's trail behind her
+      if(g.name === 'Pinky' && g.trail && g.trail.length){
+        const now = performance.now();
+        const trailLifetime = 900; // ms
+        for(let i=0;i<g.trail.length;i++){
+          const e = g.trail[i];
+          const age = now - e.t;
+          const a = 1 - (age / trailLifetime);
+          if(a <= 0) continue;
+          // pink to white fade: interpolate RGB
+          const pink = [255,159,195]; // #ff9fc3
+          const white = [255,255,255];
+          const r = Math.round(pink[0] * a + white[0] * (1-a));
+          const gcol = Math.round(pink[1] * a + white[1] * (1-a));
+          const b = Math.round(pink[2] * a + white[2] * (1-a));
+          ctx.fillStyle = `rgba(${r},${gcol},${b},${0.6*a})`;
+          ctx.beginPath(); ctx.arc(e.x+0.5, e.y+0.5, 0.14 * (a+0.3), 0, Math.PI*2); ctx.fill();
+        }
+      }
+      ctx.save(); ctx.translate(g.x+0.5,g.y+0.5);
+      // Blinky neon blink when normal
+      if(g.dead) ctx.fillStyle='#111';
+      else if(g.vulnerable) ctx.fillStyle='#4da6ff';
+      else if(g.name === 'Blinky'){
+        const blinkOn = Math.floor(performance.now()/200) % 2 === 0;
+        ctx.fillStyle = blinkOn ? '#39ff14' : g.color; // neon green blink
+      } else ctx.fillStyle = g.color;
+      // simple ghost shape
+      ctx.beginPath(); ctx.arc(0,0,0.45,Math.PI,0); ctx.lineTo(0.45,0.45); ctx.quadraticCurveTo(0.3,0.2,0.15,0.45); ctx.quadraticCurveTo(0.0,0.2,-0.15,0.45); ctx.quadraticCurveTo(-0.3,0.2,-0.45,0.45); ctx.closePath(); ctx.fill();
+      // eyes
+      ctx.fillStyle = g.vulnerable? '#fff' : '#fff'; ctx.beginPath(); ctx.ellipse(-0.12,-0.05,0.08,0.12,0,0,Math.PI*2); ctx.fill(); ctx.beginPath(); ctx.ellipse(0.12,-0.05,0.08,0.12,0,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#000'; ctx.beginPath(); ctx.ellipse(-0.12+ (g.dir.x*0.05),-0.05+(g.dir.y*0.05),0.03,0.05,0,0,Math.PI*2); ctx.fill(); ctx.beginPath(); ctx.ellipse(0.12+(g.dir.x*0.05),-0.05+(g.dir.y*0.05),0.03,0.05,0,0,Math.PI*2); ctx.fill();
+      ctx.restore();
+    });
+
+    // Draw Pac-Man
+  ctx.save(); ctx.translate(pac.x+0.5,pac.y+0.5);
+  const mouthAngle = Math.abs(Math.sin(pac.mouth*0.15)) * 0.6;
+  let dirAngle = 0; if(pac.dir.x===1) dirAngle=0; if(pac.dir.x===-1) dirAngle=Math.PI; if(pac.dir.y===1) dirAngle=Math.PI/2; if(pac.dir.y===-1) dirAngle=-Math.PI/2;
+  ctx.rotate(dirAngle);
+  ctx.fillStyle = pac.color || '#ffd34d'; ctx.beginPath(); ctx.moveTo(0,0); ctx.arc(0,0,0.45,mouthAngle,-mouthAngle); ctx.closePath(); ctx.fill();
+  ctx.restore();
+
+    ctx.restore();
+  }
+
+  let last = performance.now();
+  function loop(t){
+    const dt = Math.min(40, t - last); last = t;
+    if(!paused){
+      updateInput();
+      updatePac(dt);
+      updateGhosts(dt);
+      checkCollisions();
+    }
+    scoreEl.textContent = score;
+    draw();
+    if(pelletsRemaining<=0){
+      // show end overlay and pause; wait for user to restart or choose color
+      paused = true;
+      showEndOverlay('You win! Score: ' + score);
+    }
+    requestAnimationFrame(loop);
+  }
+
+  // initializations
+  resetPositions();
+  scoreEl.textContent = score; livesEl.textContent = lives;
+  // start the game loop; overlay will be shown once DOM is ready
+  requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
