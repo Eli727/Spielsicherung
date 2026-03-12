@@ -13,6 +13,17 @@
     .info{font-size:14px}
     .controls{font-size:12px;color:#ddd}
     footer{margin-top:8px;color:#bbb;font-size:12px}
+    /* main menu styles */
+    #mainMenu { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.7); z-index:1000 }
+  #mainMenu .menuBox { background:#111; padding:26px; border:3px solid var(--wall); border-radius:10px; color:#fff; min-width:320px; text-align:center }
+    .highscore { font-size:48px; font-weight:700; color:var(--pellet); margin:8px 0 18px 0 }
+  .startPlaying { display:inline-block; font-size:20px; font-weight:700; padding:12px 22px; border-radius:8px; border:1px solid #666; cursor:pointer; color:#fff; background:var(--wall); box-shadow: 0 4px 0 rgba(0,0,0,0.25); }
+    .personalizeBtn { margin-top:12px; display:inline-block; font-size:14px; padding:8px 12px; border-radius:6px; border:1px solid #666; background:transparent; color:#fff; cursor:pointer }
+  /* hearts life display (Minecraft-like) */
+  .playRow { display:flex; gap:12px; align-items:flex-start }
+  .hearts { display:flex; flex-direction:column; gap:8px; margin-left:8px }
+  .heart { width:30px; height:30px; transition:opacity 600ms ease, transform 300ms ease; }
+  .heart.lost { opacity:0.24; transform:scale(0.9); filter:grayscale(60%); }
   </style>
 </head>
 <body>
@@ -21,14 +32,33 @@
       <h2 style="margin:0">Classic Pac-Man (single file)</h2>
       <div class="info">Score: <span id="score">0</span> &nbsp; Lives: <span id="lives">3</span></div>
     </header>
-    <canvas id="game" width="616" height="672"></canvas>
+    <div class="playRow">
+      <canvas id="game" width="616" height="672"></canvas>
+      <div id="hearts" class="hearts" aria-hidden="false" title="Lives"></div>
+    </div>
     <div class="controls">Use arrow keys to move. Eat all pellets to win. Eat power pellets to eat ghosts.</div>
     <div style="margin-top:8px;display:flex;gap:8px"><button id="pause">Pause</button><button id="restart">Restart</button></div>
     <footer>Open this file in your browser to play.</footer>
   </div>
+    <!-- MAIN MENU: shows highscore, start button and opens personalize menu -->
+    <div id="mainMenu" style="display:flex">
+      <div class="menuBox">
+        <h2 style="margin:0 0 8px 0">Classic Pac-Man</h2>
+        <div style="font-size:14px;color:#ccc">Local Highscore</div>
+        <div id="highscore" class="highscore">0</div>
+        <div>
+          <button id="startPlayingBtn" class="startPlaying">Start Playing</button>
+        </div>
+        <div>
+          <button id="openPersonalizeBtn" class="personalizeBtn">Personalize</button>
+        </div>
+      </div>
+    </div>
+
     <!-- START OVERLAY: shown before the game. Choose Pac-Man color and start -->
-    <div id="startOverlay" style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.7);z-index:999">
-      <div style="background:#111;padding:20px;border:3px solid #444;border-radius:8px;text-align:center;color:#fff;min-width:320px">
+  <div id="startOverlay" style="position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,0.7);z-index:999">
+  <div style="position:relative;background:#111;padding:20px;border:3px solid var(--wall);border-radius:8px;text-align:center;color:#fff;min-width:320px">
+        <button id="backArrow" title="Back to main menu" style="position:absolute;left:10px;top:10px;width:36px;height:36px;border-radius:6px;border:1px solid #666;background:transparent;color:#fff;font-size:18px;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:10">←</button>
         <h2 style="margin:0 0 8px 0">Welcome to Classic Pac-Man</h2>
         <div style="margin-bottom:10px;display:flex;gap:12px;align-items:center;justify-content:center">
           <div style="text-align:center">Choose Pac-Man color:</div>
@@ -47,13 +77,15 @@
           <button class="colorBtn" data-color="#9b59ff" title="Purple" style="width:36px;height:36px;border-radius:50%;border:3px solid #fff;background:#9b59ff"></button>
           <button class="colorBtn" data-color="#8b5a2b" title="Brown" style="width:36px;height:36px;border-radius:50%;border:3px solid #fff;background:#8b5a2b"></button>
         </div>
-        <div style="margin-top:12px"><button id="startBtn">Start Game</button></div>
+        <div style="margin-top:12px">
+          <button id="startBtn" style="display:none">Start Game</button>
+        </div>
       </div>
     </div>
 
     <!-- END OVERLAY (re-uses previous win behavior) -->
     <div id="endOverlay" style="position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,0.7);z-index:999">
-      <div style="background:#111;padding:20px;border:3px solid #444;border-radius:8px;text-align:center;color:#fff;min-width:260px">
+  <div style="background:#111;padding:20px;border:3px solid var(--wall);border-radius:8px;text-align:center;color:#fff;min-width:260px">
         <h2 id="endMsg">You win!</h2>
         <div style="margin-top:12px;display:flex;gap:8px;justify-content:center">
           <button id="endToStart">Choose color & Play again</button>
@@ -505,7 +537,7 @@
       if(Math.hypot(dx,dy) < 0.6){
         if(g.vulnerable && !g.dead){ score += 200; g.dead = true; g.vulnerable = false; }
         else if(!g.vulnerable && !g.dead){ // pacman dies
-          lives--; livesEl.textContent = lives;
+          lives--; livesEl.textContent = lives; updateHearts();
           if(lives<=0){ gameOver(); }
           else resetPositions();
         }
@@ -567,8 +599,11 @@
   }
 
   function gameOver(){
-    // Show end overlay (game over) instead of alert
-    showEndOverlay('Game Over! Score: ' + score);
+    // Save highscore if needed and return to main menu
+    const prev = loadHighscore();
+    if(score > prev) saveHighscore(score);
+    // show main menu so player can restart or personalize
+    showMainMenu();
   }
 
   // Pause and restart UI
@@ -578,14 +613,39 @@
   restartBtn.addEventListener('click', ()=>{
     // reset everything without alert
     paused = false; pauseBtn.textContent = 'Pause';
-    score = 0; lives = 3; scoreEl.textContent = score; livesEl.textContent = lives;
+    score = 0; lives = 3; scoreEl.textContent = score; livesEl.textContent = lives; updateHearts();
     map = rawMap.map(r=>r.split(''));
     pelletsRemaining = 0; for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++) if(map[r][c]==='.'||map[r][c]==='o') pelletsRemaining++;
     resetPositions();
   });
   // Overlay and color selection handling
   // We'll assign these after DOM is ready to avoid timing issues
-  let startOverlay, startBtn, colorPalette, colorButtons, endOverlay, endMsg, endToStart, endRestartNow, previewCanvas, pCtx;
+  let startOverlay, startBtn, colorPalette, colorButtons, endOverlay, endMsg, endToStart, endRestartNow, previewCanvas, pCtx, backArrow;
+  const HS_KEY = 'pacman_highscore_v1';
+  const COLOR_KEY = 'pacman_color_v1';
+  let mainMenu, startPlayingBtn, openPersonalizeBtn, highscoreEl;
+
+  function loadHighscore(){ const v = parseInt(localStorage.getItem(HS_KEY)||'0',10); return isNaN(v)?0:v; }
+  function saveHighscore(v){ try{ localStorage.setItem(HS_KEY,String(v)); }catch(e){ /* ignore */ } }
+  function loadSavedColor(){ return localStorage.getItem(COLOR_KEY) || null; }
+  function saveColor(c){ try{ localStorage.setItem(COLOR_KEY,c); }catch(e){} }
+
+  function showMainMenu(){ if(!mainMenu) return; highscoreEl.textContent = loadHighscore(); mainMenu.style.display = 'flex'; paused = true; pauseBtn.textContent = 'Resume'; }
+  function hideMainMenu(){ if(!mainMenu) return; mainMenu.style.display = 'none'; paused = false; pauseBtn.textContent = 'Pause'; }
+  function updateMainMenuColor(c){ if(startPlayingBtn) startPlayingBtn.style.background = 'var(--wall)'; }
+
+  // Hearts (life) UI
+  let heartsEl, maxLives = 3;
+  function renderHearts(){
+    if(!heartsEl) return;
+    heartsEl.innerHTML = '';
+    for(let i=0;i<maxLives;i++){
+      const d = document.createElement('div'); d.className = 'heart' + (i>=lives ? ' lost' : '');
+      d.innerHTML = '<svg viewBox="0 0 32 29" xmlns="http://www.w3.org/2000/svg" width="30" height="30"><path fill="#ff4d4d" d="M23.6 0c-2.7 0-5.1 1.4-6.6 3.6C15.5 1.4 13.1 0 10.4 0 4.7 0 0 4.8 0 10.7 0 18.9 9.4 23.7 16 29c6.6-5.3 16-10.1 16-18.3C32 4.8 27.3 0 23.6 0z"/></svg>';
+      heartsEl.appendChild(d);
+    }
+  }
+  function updateHearts(){ if(!heartsEl) return; const list = Array.from(heartsEl.children); list.forEach((el,i)=>{ if(i < lives) el.classList.remove('lost'); else el.classList.add('lost'); }); }
 
   function showStartOverlay(){
     startOverlay.style.display = 'flex';
@@ -594,9 +654,14 @@
   function hideStartOverlay(){ startOverlay.style.display = 'none'; }
 
   function showEndOverlay(msg){
+    // update highscore if needed
+    const prev = loadHighscore();
+    if(score > prev){ saveHighscore(score); }
     endMsg.textContent = msg;
     endOverlay.style.display = 'flex';
     paused = true; pauseBtn.textContent = 'Resume';
+    // refresh main menu display if it exists
+    if(highscoreEl) highscoreEl.textContent = loadHighscore();
   }
   function hideEndOverlay(){ endOverlay.style.display = 'none'; }
 
@@ -608,6 +673,8 @@
     pac.color = c;
     // update preview display
     drawPreview();
+    // persist choice (Start button stays wall-blue)
+    saveColor(pac.color);
   }
   // Pac preview canvas drawing will be initialized after DOM is ready
   function drawPreview(){
@@ -637,35 +704,76 @@
     endMsg = document.getElementById('endMsg');
     endToStart = document.getElementById('endToStart');
     endRestartNow = document.getElementById('endRestartNow');
-    previewCanvas = document.getElementById('pacPreview');
-    pCtx = previewCanvas && previewCanvas.getContext ? previewCanvas.getContext('2d') : null;
+  previewCanvas = document.getElementById('pacPreview');
+  pCtx = previewCanvas && previewCanvas.getContext ? previewCanvas.getContext('2d') : null;
+  backArrow = document.getElementById('backArrow');
+    // main menu elements
+    mainMenu = document.getElementById('mainMenu');
+    startPlayingBtn = document.getElementById('startPlayingBtn');
+    openPersonalizeBtn = document.getElementById('openPersonalizeBtn');
+    highscoreEl = document.getElementById('highscore');
+
+  // hearts UI
+  heartsEl = document.getElementById('hearts');
+  maxLives = Math.max(lives, 3);
+  renderHearts();
+  updateHearts();
+
+    // load persisted color and highscore
+    const savedColor = loadSavedColor();
+    if(savedColor){ pac.color = savedColor; }
 
     // attach color button handlers
     colorButtons.forEach(b=> b.addEventListener('click', ()=> selectColorBtn(b)));
     // init selection to default
-    if(colorButtons.length) selectColorBtn(colorButtons[0]);
+    // if we have a saved color, select its button; otherwise default to first
+    if(colorButtons.length){
+      let matched = null;
+      if(savedColor) matched = colorButtons.find(b=> b.getAttribute('data-color') === savedColor);
+      if(matched) selectColorBtn(matched); else selectColorBtn(colorButtons[0]);
+    }
 
     // draw initial preview
     drawPreview();
 
-  // show the start overlay once elements and handlers are ready
-  showStartOverlay();
+  // show the main menu once elements and handlers are ready
+  // update start button color to match pac.color
+  updateMainMenuColor(pac.color);
+  showMainMenu();
 
     // start button
-    if(startBtn) startBtn.addEventListener('click', ()=>{
-      // start fresh game with chosen color
-      hideStartOverlay(); paused = false; pauseBtn.textContent = 'Pause';
-      score = 0; lives = 3; scoreEl.textContent = score; livesEl.textContent = lives;
+  if(startBtn) startBtn.addEventListener('click', ()=>{
+      // start fresh game with chosen color from personalize overlay
+      // persist chosen color
+      saveColor(pac.color);
+      hideStartOverlay(); hideMainMenu(); paused = false; pauseBtn.textContent = 'Pause';
+  score = 0; lives = 3; scoreEl.textContent = score; livesEl.textContent = lives; updateHearts();
       map = rawMap.map(r=>r.split(''));
       pelletsRemaining = 0; for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++) if(map[r][c]==='.'||map[r][c]==='o') pelletsRemaining++;
       resetPositions();
     });
 
+  // back from personalize overlay to main menu (arrow button in top-left)
+  if(backArrow) backArrow.addEventListener('click', ()=>{ hideStartOverlay(); showMainMenu(); });
+
+    // start button on main menu
+    if(startPlayingBtn) startPlayingBtn.addEventListener('click', ()=>{
+      saveColor(pac.color);
+      hideMainMenu(); paused = false; pauseBtn.textContent = 'Pause';
+      score = 0; lives = 3; scoreEl.textContent = score; livesEl.textContent = lives; updateHearts();
+      map = rawMap.map(r=>r.split(''));
+      pelletsRemaining = 0; for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++) if(map[r][c]==='.'||map[r][c]==='o') pelletsRemaining++;
+      resetPositions();
+    });
+
+    // open personalize (show color palette) from main menu
+    if(openPersonalizeBtn) openPersonalizeBtn.addEventListener('click', ()=>{ hideMainMenu(); startOverlay.style.display = 'flex'; paused = true; pauseBtn.textContent = 'Resume'; });
+
     // end overlay buttons
-    if(endToStart) endToStart.addEventListener('click', ()=>{ hideEndOverlay(); showStartOverlay(); });
+    if(endToStart) endToStart.addEventListener('click', ()=>{ hideEndOverlay(); showMainMenu(); });
     if(endRestartNow) endRestartNow.addEventListener('click', ()=>{
       hideEndOverlay(); paused = false; pauseBtn.textContent = 'Pause';
-      score = 0; lives = 3; scoreEl.textContent = score; livesEl.textContent = lives;
+      score = 0; lives = 3; scoreEl.textContent = score; livesEl.textContent = lives; updateHearts();
       map = rawMap.map(r=>r.split(''));
       pelletsRemaining = 0; for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++) if(map[r][c]==='.'||map[r][c]==='o') pelletsRemaining++;
       resetPositions();
@@ -766,7 +874,7 @@
 
   // initializations
   resetPositions();
-  scoreEl.textContent = score; livesEl.textContent = lives;
+  scoreEl.textContent = score; livesEl.textContent = lives; updateHearts();
   // start the game loop; overlay will be shown once DOM is ready
   requestAnimationFrame(loop);
   </script>
