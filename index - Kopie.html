@@ -22,15 +22,19 @@
   /* hearts life display (Minecraft-like) */
   .playRow { display:flex; gap:12px; align-items:flex-start }
   .hearts { display:flex; flex-direction:column; gap:8px; margin-left:8px }
+  /* ensure left-side hearts (hearts2) sit with a right margin, not left margin */
+  #hearts2 { margin-left: 0; margin-right: 8px; }
   .heart { width:30px; height:30px; transition:opacity 600ms ease, transform 300ms ease; }
   .heart.lost { opacity:0.24; transform:scale(0.9); filter:grayscale(60%); }
+  /* short end-of-game animation when pellets run out */
+  canvas.ending { transition: transform 700ms ease, filter 700ms ease; transform: scale(1.06) rotate(0.6deg); filter: drop-shadow(0 8px 20px rgba(255,215,0,0.45)); }
   </style>
 </head>
 <body>
   <div class="container">
     <header>
       <h2 style="margin:0">Classic Pac-Man (single file)</h2>
-      <div class="info">Score: <span id="score">0</span> &nbsp; Lives: <span id="lives">3</span></div>
+      <div class="info">P1: <span id="score">0</span> &nbsp; Lives: <span id="lives">3</span> &nbsp;&nbsp; P2: <span id="score2">0</span> &nbsp; Lives: <span id="lives2">3</span></div>
     </header>
     <div class="playRow">
       <div id="hearts2" class="hearts" aria-hidden="false" title="P2 Lives"></div>
@@ -47,8 +51,12 @@
         <h2 style="margin:0 0 8px 0">Classic Pac-Man</h2>
         <div style="font-size:14px;color:#ccc">Local Highscore</div>
         <div id="highscore" class="highscore">0</div>
+        <div id="winnerText" style="display:none;margin-top:8px;font-size:16px;color:#ffd86b;font-weight:700"></div>
         <div>
           <button id="startPlayingBtn" class="startPlaying">Start Playing</button>
+        </div>
+        <div>
+          <button id="returnToStartBtn" class="personalizeBtn" style="display:none;margin-top:8px">Return to start</button>
         </div>
         <div>
           <button id="openPersonalizeBtn" class="personalizeBtn">Personalize</button>
@@ -166,8 +174,13 @@
 
   // Game state
   let score = 0, lives = 3;
-  let lives2 = 3;
+  let score2 = 0, lives2 = 3;
+  // pellet bookkeeping
   let pelletsRemaining = 0;
+  let pelletsCollected = 0, pelletsCollected2 = 0;
+  // keep explicit Pac color references for winner display
+  let pac1Color = '#ffd34d';
+  let pac2Color = '#4dd9ff';
 
   // Pac-Man
   // speed is in tiles per second (will be multiplied by deltaTime in seconds)
@@ -409,8 +422,8 @@
         if(pac.justWrapped) pac.justWrapped = null;
         // handle tile arrival: pellets, energizers
         const t = getTile(Math.round(pac.x), Math.round(pac.y));
-        if(t=='.'){ score += 10; setTile(Math.round(pac.x),Math.round(pac.y),' '); pelletsRemaining--; }
-        if(t=='o'){ score += 50; setTile(Math.round(pac.x),Math.round(pac.y),' '); pelletsRemaining--; 
+        if(t=='.'){ score += 10; setTile(Math.round(pac.x),Math.round(pac.y),' '); pelletsRemaining--; pelletsCollected++; }
+        if(t=='o'){ score += 50; setTile(Math.round(pac.x),Math.round(pac.y),' '); pelletsRemaining--; pelletsCollected++; 
           ghosts.forEach(g=>{ if(!g.dead){ g.vulnerable=true; setTimeout(()=>{ g.vulnerable=false; },7000); } });
         }
         // After arriving, attempt to continue moving in nextDir first, then current dir
@@ -467,8 +480,8 @@
         pac2.x = pac2.targetX; pac2.y = pac2.targetY; pac2.moving = false;
         // handle tile arrival: pellets, energizers (mirror pac behavior)
         const t = getTile(Math.round(pac2.x), Math.round(pac2.y));
-        if(t=='.'){ score += 10; setTile(Math.round(pac2.x),Math.round(pac2.y),' '); pelletsRemaining--; }
-        if(t=='o'){ score += 50; setTile(Math.round(pac2.x),Math.round(pac2.y),' '); pelletsRemaining--; 
+        if(t=='.'){ score2 += 10; setTile(Math.round(pac2.x),Math.round(pac2.y),' '); pelletsRemaining--; pelletsCollected2++; }
+        if(t=='o'){ score2 += 50; setTile(Math.round(pac2.x),Math.round(pac2.y),' '); pelletsRemaining--; pelletsCollected2++; 
           ghosts.forEach(g=>{ if(!g.dead){ g.vulnerable=true; setTimeout(()=>{ g.vulnerable=false; },7000); } });
         }
         // After arriving, try to continue moving in nextDir first, then current dir
@@ -627,8 +640,12 @@
         if(g.vulnerable && !g.dead){ score += 200; g.dead = true; g.vulnerable = false; }
         else if(!g.vulnerable && !g.dead){ // pacman dies
           lives--; livesEl.textContent = lives; updateHearts();
-          if(lives<=0){ if(lives2<=0) gameOver(); else resetPlayer('p1'); }
-          else resetPlayer('p1');
+          if(lives<=0){
+            // if a player's lives reach 0 the game ends and the other player wins
+            gameOver();
+          } else {
+            resetPlayer('p1');
+          }
         }
       }
       // collision with pac2 (player 2)
@@ -637,8 +654,11 @@
         if(g.vulnerable && !g.dead){ score += 200; g.dead = true; g.vulnerable = false; }
         else if(!g.vulnerable && !g.dead){ // pac2 dies
           lives2--; updateHearts2();
-          if(lives2<=0){ if(lives<=0) gameOver(); else resetPlayer('p2'); }
-          else resetPlayer('p2');
+          if(lives2<=0){
+            gameOver();
+          } else {
+            resetPlayer('p2');
+          }
         }
       }
     });
@@ -709,11 +729,109 @@
   }
 
   function gameOver(){
-    // Save highscore if needed and return to main menu
-    const prev = loadHighscore();
-    if(score > prev) saveHighscore(score);
-    // show main menu so player can restart or personalize
-    showMainMenu();
+    // Save highscore if needed and return to main menu showing the winner
+    const prev = loadHighscore(); if(score > prev) saveHighscore(score);
+    if(typeof loadHighscore2 === 'function'){ const prev2 = loadHighscore2(); if(typeof saveHighscore2 === 'function' && typeof score2 !== 'undefined' && score2 > prev2) saveHighscore2(score2); }
+    // decide winner respecting that a dead Pac (lives<=0) can never win
+    let winnerId = null, title = '';
+    if(typeof score2 === 'undefined') { winnerId = 'p1'; title = 'Player 1 wins!'; }
+    else {
+      // immediate precedence: if one player has no lives left, the other wins
+      if(lives <= 0 && lives2 > 0){ winnerId = 'p2'; title = 'Player 2 wins!'; }
+      else if(lives2 <= 0 && lives > 0){ winnerId = 'p1'; title = 'Player 1 wins!'; }
+      else if(lives <= 0 && lives2 <= 0){ winnerId = 'tie'; title = 'It\'s a tie!'; }
+      else {
+        // no dead player: decide by pelletsCollected, then lives, then score
+        if(pelletsCollected > pelletsCollected2){ winnerId = 'p1'; title = 'Player 1 wins by pellets!'; }
+        else if(pelletsCollected2 > pelletsCollected){ winnerId = 'p2'; title = 'Player 2 wins by pellets!'; }
+        else if(lives > lives2){ winnerId = 'p1'; title = 'Player 1 wins by lives!'; }
+        else if(lives2 > lives){ winnerId = 'p2'; title = 'Player 2 wins by lives!'; }
+        else if(score > score2){ winnerId = 'p1'; title = 'Player 1 wins by score!'; }
+        else if(score2 > score){ winnerId = 'p2'; title = 'Player 2 wins by score!'; }
+        else { winnerId = 'tie'; title = 'It\'s a tie!'; }
+      }
+    }
+    showMainMenuWithWinner({ title: title, winner: winnerId, stats: { score1: score, score2: score2, pellets1: pelletsCollected, pellets2: pelletsCollected2, lives1: lives, lives2: lives2 }, colors: { p1: pac1Color, p2: pac2Color } });
+  }
+
+  function showMainMenuWithWinner(winner){
+    if(!mainMenu) return;
+    const wt = document.getElementById('winnerText');
+    const rb = document.getElementById('returnToStartBtn');
+    // allow caller to pass an object with detailed stats
+    let title = '';
+    let stats = null;
+    if(typeof winner === 'object') { title = winner.title || ''; stats = winner.stats || null; }
+    else title = String(winner || '');
+    // helper: map hex colors to German short names
+    function colorNameFor(hex){ if(!hex) return null; const h = String(hex).toLowerCase(); const map = {
+      '#ff4d4d':'Rot', '#ffb86b':'Orange', '#ffd34d':'Gelb', '#001f5f':'Dunkelblau', '#4dd9ff':'Blau', '#006400':'Dunkelgrün', '#a8ff7f':'Hellgrün', '#ff9fc3':'Rosa', '#9b59ff':'Lila', '#8b5a2b':'Braun'
+    }; return map[h] || null; }
+
+    if(wt) {
+      // prefer showing the winning Pac's color name (German) instead of colored text
+      let winnerLabel = title;
+      if(typeof winner === 'object' && winner.winner){
+        const colors = winner.colors || {};
+        let col = null;
+        if(winner.winner === 'p1') col = colors.p1 || pac1Color;
+        else if(winner.winner === 'p2') col = colors.p2 || pac2Color;
+        const name = colorNameFor(col);
+        if(name) winnerLabel = name + ' gewinnt!';
+      }
+      wt.textContent = winnerLabel;
+      wt.style.display = 'block';
+      wt.style.color = ''; // ensure text is not color-styled
+    }
+    // insert or update a small stats block showing both players' scores/pellets/lives
+    let statsEl = document.getElementById('winnerStats');
+    if(!statsEl){ statsEl = document.createElement('div'); statsEl.id = 'winnerStats'; statsEl.style.marginTop = '8px'; statsEl.style.fontSize = '14px'; statsEl.style.color = '#ddd'; statsEl.style.whiteSpace = 'pre-line'; if(wt) wt.parentNode.insertBefore(statsEl, wt.nextSibling); }
+    if(stats){
+      // Layout: left = Blau (pac2), middle = dash, right = Gelb (pac1)
+      const blueTitle = 'Blau';
+      const yellowTitle = 'Gelb';
+      const blueScore = typeof stats.score2 !== 'undefined' ? stats.score2 : 0;
+      const bluePellets = typeof stats.pellets2 !== 'undefined' ? stats.pellets2 : 0;
+      const blueLives = typeof stats.lives2 !== 'undefined' ? stats.lives2 : 0;
+      const yellowScore = typeof stats.score1 !== 'undefined' ? stats.score1 : 0;
+      const yellowPellets = typeof stats.pellets1 !== 'undefined' ? stats.pellets1 : 0;
+      const yellowLives = typeof stats.lives1 !== 'undefined' ? stats.lives1 : 0;
+      statsEl.innerHTML = '';
+      const wrapper = document.createElement('div');
+      wrapper.style.display = 'flex'; wrapper.style.alignItems = 'center'; wrapper.style.justifyContent = 'center'; wrapper.style.gap = '18px'; wrapper.style.marginTop = '8px';
+      // left (Blue)
+      const left = document.createElement('div'); left.style.flex = '1'; left.style.textAlign = 'center'; left.style.color = '#ddd';
+  const lTitle = document.createElement('div'); lTitle.textContent = blueTitle; lTitle.style.fontWeight = '700'; lTitle.style.marginBottom = '6px';
+  // color the title with the actual Blue Pac color
+  const leftColor = winner && typeof winner === 'object' && winner.colors && winner.colors.p2 ? winner.colors.p2 : pac2Color;
+  lTitle.style.color = leftColor || '#4dd9ff';
+  left.appendChild(lTitle);
+      const lPoints = document.createElement('div'); lPoints.textContent = 'Punkte: ' + blueScore + ' pts'; left.appendChild(lPoints);
+      const lPellets = document.createElement('div'); lPellets.textContent = 'Pellets: ' + bluePellets; left.appendChild(lPellets);
+      const lLives = document.createElement('div'); lLives.textContent = 'Leben: ' + blueLives; lLives.style.marginTop = '6px'; left.appendChild(lLives);
+      // middle dash
+      const mid = document.createElement('div'); mid.style.width = '26px'; mid.style.textAlign = 'center'; mid.style.color = '#ccc'; mid.style.fontSize = '22px'; mid.textContent = '—';
+      // right (Yellow)
+      const right = document.createElement('div'); right.style.flex = '1'; right.style.textAlign = 'center'; right.style.color = '#ddd';
+  const rTitle = document.createElement('div'); rTitle.textContent = yellowTitle; rTitle.style.fontWeight = '700'; rTitle.style.marginBottom = '6px';
+  // color the title with the actual Yellow Pac color
+  const rightColor = winner && typeof winner === 'object' && winner.colors && winner.colors.p1 ? winner.colors.p1 : pac1Color;
+  rTitle.style.color = rightColor || '#ffd34d';
+  right.appendChild(rTitle);
+      const rPoints = document.createElement('div'); rPoints.textContent = 'Punkte: ' + yellowScore + ' pts'; right.appendChild(rPoints);
+      const rPellets = document.createElement('div'); rPellets.textContent = 'Pellets: ' + yellowPellets; right.appendChild(rPellets);
+      const rLives = document.createElement('div'); rLives.textContent = 'Leben: ' + yellowLives; rLives.style.marginTop = '6px'; right.appendChild(rLives);
+      wrapper.appendChild(left); wrapper.appendChild(mid); wrapper.appendChild(right);
+      statsEl.appendChild(wrapper);
+    } else {
+      statsEl.textContent = '';
+    }
+    if(rb) { rb.style.display = 'inline-block'; }
+    if(startPlayingBtn) startPlayingBtn.style.display = 'none';
+    if(openPersonalizeBtn) openPersonalizeBtn.style.display = 'none';
+    highscoreEl.textContent = loadHighscore();
+    mainMenu.style.display = 'flex'; paused = true; pauseBtn.textContent = 'Resume';
+    if(rb) rb.onclick = ()=>{ if(wt) { wt.style.display='none'; wt.style.color = ''; } if(statsEl) statsEl.textContent=''; rb.style.display='none'; if(startPlayingBtn) startPlayingBtn.style.display='inline-block'; if(openPersonalizeBtn) openPersonalizeBtn.style.display='inline-block'; hideMainMenu(); showMainMenu(); };
   }
 
   // Pause and restart UI
@@ -724,8 +842,10 @@
     // reset everything without alert
     paused = false; pauseBtn.textContent = 'Pause';
     score = 0; lives = 3; scoreEl.textContent = score; livesEl.textContent = lives; updateHearts();
+    score2 = 0; lives2 = 3; const scoreEl2 = document.getElementById('score2'); if(scoreEl2) scoreEl2.textContent = score2; const livesEl2 = document.getElementById('lives2'); if(livesEl2) livesEl2.textContent = lives2; updateHearts2();
     map = rawMap.map(r=>r.split(''));
     pelletsRemaining = 0; for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++) if(map[r][c]==='.'||map[r][c]==='o') pelletsRemaining++;
+    pelletsCollected = 0; pelletsCollected2 = 0;
     resetPositions();
   });
   // Overlay and color selection handling
@@ -760,8 +880,8 @@
     if(!heartsEl2) return;
     heartsEl2.innerHTML = '';
     for(let i=0;i<maxLives;i++){
-      const d = document.createElement('div'); d.className = 'heart' + (i>=lives ? ' lost' : '');
-      d.innerHTML = '<svg viewBox="0 0 32 29" xmlns="http://www.w3.org/2000/svg" width="30" height="30"><path fill="#b30059" d="M23.6 0c-2.7 0-5.1 1.4-6.6 3.6C15.5 1.4 13.1 0 10.4 0 4.7 0 0 4.8 0 10.7 0 18.9 9.4 23.7 16 29c6.6-5.3 16-10.1 16-18.3C32 4.8 27.3 0 23.6 0z"/></svg>';
+      const d = document.createElement('div'); d.className = 'heart' + (i>=lives2 ? ' lost' : '');
+      d.innerHTML = '<svg viewBox="0 0 32 29" xmlns="http://www.w3.org/2000/svg" width="30" height="30"><path fill="#ff4d4d" d="M23.6 0c-2.7 0-5.1 1.4-6.6 3.6C15.5 1.4 13.1 0 10.4 0 4.7 0 0 4.8 0 10.7 0 18.9 9.4 23.7 16 29c6.6-5.3 16-10.1 16-18.3C32 4.8 27.3 0 23.6 0z"/></svg>';
       heartsEl2.appendChild(d);
     }
   }
@@ -790,7 +910,8 @@
     colorButtons.forEach(b=> b.style.outline = '');
     btn.style.outline = '3px solid #fff';
     const c = btn.getAttribute('data-color');
-    pac.color = c;
+  pac.color = c;
+  pac1Color = c;
     // update preview display
     drawPreview();
     // persist choice (Start button stays wall-blue)
@@ -843,6 +964,9 @@
     // load persisted color and highscore
     const savedColor = loadSavedColor();
     if(savedColor){ pac.color = savedColor; }
+  // ensure pac1Color/pac2Color reflect live colors
+  pac1Color = pac.color || pac1Color;
+  pac2Color = pac2.color || pac2Color;
 
     // attach color button handlers
     colorButtons.forEach(b=> b.addEventListener('click', ()=> selectColorBtn(b)));
@@ -869,6 +993,7 @@
       saveColor(pac.color);
       hideStartOverlay(); hideMainMenu(); paused = false; pauseBtn.textContent = 'Pause';
   score = 0; lives = 3; scoreEl.textContent = score; livesEl.textContent = lives; updateHearts();
+  score2 = 0; lives2 = 3; const scoreEl2 = document.getElementById('score2'); if(scoreEl2) scoreEl2.textContent = score2; const livesEl2 = document.getElementById('lives2'); if(livesEl2) livesEl2.textContent = lives2; updateHearts2(); pelletsCollected = 0; pelletsCollected2 = 0;
       map = rawMap.map(r=>r.split(''));
       pelletsRemaining = 0; for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++) if(map[r][c]==='.'||map[r][c]==='o') pelletsRemaining++;
       resetPositions();
@@ -882,6 +1007,7 @@
       saveColor(pac.color);
       hideMainMenu(); paused = false; pauseBtn.textContent = 'Pause';
       score = 0; lives = 3; scoreEl.textContent = score; livesEl.textContent = lives; updateHearts();
+  score2 = 0; lives2 = 3; const scoreEl2 = document.getElementById('score2'); if(scoreEl2) scoreEl2.textContent = score2; const livesEl2 = document.getElementById('lives2'); if(livesEl2) livesEl2.textContent = lives2; updateHearts2(); pelletsCollected = 0; pelletsCollected2 = 0;
       map = rawMap.map(r=>r.split(''));
       pelletsRemaining = 0; for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++) if(map[r][c]==='.'||map[r][c]==='o') pelletsRemaining++;
       resetPositions();
@@ -895,6 +1021,7 @@
     if(endRestartNow) endRestartNow.addEventListener('click', ()=>{
       hideEndOverlay(); paused = false; pauseBtn.textContent = 'Pause';
       score = 0; lives = 3; scoreEl.textContent = score; livesEl.textContent = lives; updateHearts();
+  score2 = 0; lives2 = 3; const scoreEl2 = document.getElementById('score2'); if(scoreEl2) scoreEl2.textContent = score2; const livesEl2 = document.getElementById('lives2'); if(livesEl2) livesEl2.textContent = lives2; updateHearts2(); pelletsCollected = 0; pelletsCollected2 = 0;
       map = rawMap.map(r=>r.split(''));
       pelletsRemaining = 0; for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++) if(map[r][c]==='.'||map[r][c]==='o') pelletsRemaining++;
       resetPositions();
@@ -993,11 +1120,38 @@
       checkCollisions();
     }
     scoreEl.textContent = score;
+    // update second score element if present
+    const scoreEl2 = document.getElementById('score2'); if(scoreEl2) scoreEl2.textContent = score2;
     draw();
     if(pelletsRemaining<=0){
-      // show end overlay and pause; wait for user to restart or choose color
+      // Play a short canvas flourish animation, pause briefly, then decide winner
+      const canv = document.getElementById('game');
+      if(canv){ canv.classList.add('ending'); }
       paused = true;
-      showEndOverlay('You win! Score: ' + score);
+      setTimeout(()=>{
+        if(canv){ canv.classList.remove('ending'); }
+        // decide winner, never allow a dead Pac (lives<=0) to win
+        let winnerText = '';
+        let winnerId = null;
+        if(typeof score2 === 'undefined'){
+          winnerText = 'Player 1 wins!'; winnerId = 'p1';
+        } else {
+          if(lives <= 0 && lives2 > 0){ winnerText = 'Player 2 wins!'; winnerId = 'p2'; }
+          else if(lives2 <= 0 && lives > 0){ winnerText = 'Player 1 wins!'; winnerId = 'p1'; }
+          else if(lives <= 0 && lives2 <= 0){ winnerText = 'It\'s a tie!'; winnerId = 'tie'; }
+          else if(pelletsCollected > pelletsCollected2) { winnerText = 'Player 1 wins by pellets!'; winnerId='p1'; }
+          else if(pelletsCollected2 > pelletsCollected) { winnerText = 'Player 2 wins by pellets!'; winnerId='p2'; }
+          else if(lives > lives2) { winnerText = 'Player 1 wins by lives!'; winnerId='p1'; }
+          else if(lives2 > lives) { winnerText = 'Player 2 wins by lives!'; winnerId='p2'; }
+          else if(score > score2) { winnerText = 'Player 1 wins by score!'; winnerId='p1'; }
+          else if(score2 > score) { winnerText = 'Player 2 wins by score!'; winnerId='p2'; }
+          else { winnerText = 'It\'s a tie!'; winnerId = 'tie'; }
+        }
+        // Save highscores
+        const prev = loadHighscore(); if(score > prev) saveHighscore(score);
+        if(typeof loadHighscore2 === 'function'){ const prev2 = loadHighscore2(); if(typeof saveHighscore2 === 'function' && typeof score2 !== 'undefined' && score2 > prev2) saveHighscore2(score2); }
+        showMainMenuWithWinner({ title: winnerText, winner: winnerId, stats: { score1: score, score2: score2, pellets1: pelletsCollected, pellets2: pelletsCollected2, lives1: lives, lives2: lives2 }, colors: { p1: pac1Color, p2: pac2Color } });
+      }, 700);
     }
     requestAnimationFrame(loop);
   }
